@@ -6,8 +6,8 @@ import os
 import torch
 
 # 读取Excel文件
-df = pd.read_excel('/opt/tiger/trl/consistency/data/data_v1.xlsx')
-
+# df = pd.read_excel('/opt/tiger/trl/consistency/data/data_v1.xlsx')
+df = pd.read_csv('/opt/tiger/trl/consistency/git-demo/data/final2model.csv')
 # 显示DataFrame的前几行
 print("Original DataFrame:")
 print(df.shape)
@@ -35,7 +35,7 @@ def generate_answer(image_path, question):
     return result
 
 # 定义保存路径和保存频率
-output_path = 'result_gpu_v1.csv'
+output_path = 'result_total.csv'
 save_frequency = 20  # 每处理20行保存一次
 
 # 创建一个新的 DataFrame 来存储答案

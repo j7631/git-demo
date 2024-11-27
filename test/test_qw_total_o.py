@@ -7,9 +7,13 @@ import torch
 import json
 import re
 import random
+from PIL import Image
+import requests
+from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+
 # 读取CSV文件
 df = pd.read_csv('/opt/tiger/trl/consistency/git-demo/data/final2model.csv')
-df = df[:2000]
+df = df[:3]
 print("Original DataFrame:")
 print(df.shape)
 
@@ -22,17 +26,19 @@ for col in required_columns:
 # 初始化模型和处理器
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-model = LlavaNextForConditionalGeneration.from_pretrained("llava-hf/llava-v1.6-mistral-7b-hf").to(device)
-processor = AutoProcessor.from_pretrained("llava-hf/llava-v1.6-mistral-7b-hf")
+
+model = Qwen2VLForConditionalGeneration.from_pretrained("Qwen/Qwen2-VL-7B-Instruct").to(device)
+processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
 
 base_path = '/opt/tiger/trl/consistency/git-demo/data/images_'
 
 # 定义一个函数来生成答案
 def generate_answer(image_path, question):
     image = Image.open(image_path)
-    inputs = processor(text=question, images=image, return_tensors="pt").to(device)
-    generate_ids = model.generate(**inputs, max_new_tokens=150)
-    result = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+    inputs = processor(text=question, images=image, padding=True, return_tensors="pt").to(device)
+    output_ids = model.generate(**inputs, max_new_tokens=150)
+    generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, output_ids)]
+    result = processor.batch_decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
     return result
 
 # 从JSON文件读取alias字典
@@ -67,6 +73,16 @@ def get_correct_image_path(image_folder_path, question, expected_answer):
                 return image_path
     return None
 
+def deal_question(question):
+    return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": question},
+                ],
+            },
+        ]
 # 定义保存路径和保存频率
 output_path = 'result_total_qw_o.csv'
 save_frequency = 20
@@ -80,6 +96,9 @@ for index, row in df.iterrows():
         s = row['subject']
         r = row['relation']
         o = row['object']
+        print(s)
+        print(r)
+        print(o)
         first_index = row['first_index']
         folder_name = f"{str(first_index) + '_' + s.replace(' ', '_')}"
         image_folder_path = os.path.join(base_path, folder_name)
@@ -92,24 +111,25 @@ for index, row in df.iterrows():
         question2 = row['q2']
         question3 = row['q3']
         
-        correct_image_path = get_correct_image_path(image_folder_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question2} [/INST]", s)
+        
+        correct_image_path = get_correct_image_path(image_folder_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question2} [/INST]"), s)
         
         if correct_image_path:
-            answer2 = generate_answer(correct_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question2} [/INST]")
-            answer3 = generate_answer(correct_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} [/INST]")
-            answer4 = generate_answer(correct_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n {question2}And answer the following question step by step. {question3} [/INST]")
-            answer5 = generate_answer(correct_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} \n Let's think step by step.[/INST]")
-            answer6 = generate_answer(correct_image_path, f"Please answer the question directly in a few words without repeating the question.\n Let's think step by step.[INST] <image>\n{question3} [/INST]")
+            answer2 = generate_answer(correct_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question2} [/INST]"))
+            answer3 = generate_answer(correct_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} [/INST]"))
+            answer4 = generate_answer(correct_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n {question2}And answer the following question step by step. {question3} [/INST]"))
+            answer5 = generate_answer(correct_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} \n Let's think step by step.[/INST]"))
+            answer6 = generate_answer(correct_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.\n Let's think step by step.[INST] <image>\n{question3} [/INST]"))
 
         else:
             random_image_path = os.path.join(image_folder_path, random.choice(os.listdir(image_folder_path)))
-            answer2 = generate_answer(random_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question2} [/INST]")
-            answer3 = generate_answer(random_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} [/INST]")
-            answer4 = generate_answer(random_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n {question2}And answer the following question step by step. {question3} [/INST]")
-            answer5 = generate_answer(random_image_path, f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} \n Let's think step by step.[/INST]")
-            answer6 = generate_answer(random_image_path, f"Please answer the question directly in a few words without repeating the question.\n Let's think step by step.[INST] <image>\n{question3} [/INST]")
+            answer2 = generate_answer(random_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question2} [/INST]"))
+            answer3 = generate_answer(random_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} [/INST]"))
+            answer4 = generate_answer(random_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n {question2}And answer the following question step by step. {question3} [/INST]"))
+            answer5 = generate_answer(random_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question3} \n Let's think step by step.[/INST]"))
+            answer6 = generate_answer(random_image_path, deal_question(f"Please answer the question directly in a few words without repeating the question.\n Let's think step by step.[INST] <image>\n{question3} [/INST]"))
 
-        answer1 = generate_answer('/opt/tiger/trl/consistency/git-demo/data/black.jpg', f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question1} [/INST]")
+        answer1 = generate_answer('/opt/tiger/trl/consistency/git-demo/data/black.jpg', deal_question(f"Please answer the question directly in a few words without repeating the question.[INST] <image>\n{question1} [/INST]"))
         
         results_df = results_df.append({
             **row,
